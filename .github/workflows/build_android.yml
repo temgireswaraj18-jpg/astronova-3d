@@ -1,0 +1,37 @@
+name: Build Astronova Android APK & Play Store AAB
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Build Debug APK (For Phone Testing - Checklist #1)
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: buildozer android debug
+          buildozer_version: master
+
+      - name: Upload Testable APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: astronova-debug-apk
+          path: bin/*.apk
+
+      - name: Build Release AAB (For Google Play Store - Checklist #3)
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: buildozer android release
+          buildozer_version: master
+
+      - name: Upload Google Play Release AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: astronova-release-aab
+          path: bin/*.aab
