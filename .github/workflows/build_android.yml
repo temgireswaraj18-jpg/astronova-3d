@@ -24,7 +24,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 1. RESTORE CACHE AT THE START
+      # 1. RESTORE CACHE AT THE START (key bumped v2 -> v3 to drop the corrupted cache)
       - name: Restore Buildozer Cache
         id: cache-restore
         uses: actions/cache/restore@v4
@@ -32,9 +32,9 @@ jobs:
           path: |
             .buildozer
             ~/.buildozer
-          key: buildozer-${{ runner.os }}-v2-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-${{ runner.os }}-v3-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            buildozer-${{ runner.os }}-v2-
+            buildozer-${{ runner.os }}-v3-
 
       - name: Install Linux System Dependencies for Buildozer
         run: |
@@ -49,9 +49,18 @@ jobs:
           python3 -m pip install --upgrade "pip<25.0" setuptools wheel virtualenv
           python3 -m pip install buildozer "cython==0.29.36"
 
+      # FIX: remove stale python-for-android virtualenv (mixed pip versions crash it)
+      - name: Remove stale python-for-android virtualenv
+        run: rm -rf .buildozer/android/platform/build-*/build/venv
+
       - name: Build Debug APK (For Phone Testing - Checklist #1)
         run: |
           yes | buildozer android debug
+
+      # FIX: never cache the venv, so a broken one can't be saved again
+      - name: Clean venv before caching
+        if: always()
+        run: rm -rf .buildozer/android/platform/build-*/build/venv
 
       # 2. ALWAYS SAVE CACHE (Even if the build step above fails!)
       - name: Save Buildozer Cache (Always)
@@ -61,13 +70,17 @@ jobs:
           path: |
             .buildozer
             ~/.buildozer
-          key: buildozer-${{ runner.os }}-v2-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-${{ runner.os }}-v3-${{ hashFiles('buildozer.spec') }}
 
       - name: Upload Testable APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: astronova-debug-apk
           path: bin/*.apk
+
+      # The release build also needs the venv recreated cleanly
+      - name: Remove stale venv before release build
+        run: rm -rf .buildozer/android/platform/build-*/build/venv
 
       - name: Build Release AAB (For Google Play Store - Checklist #3)
         run: |
