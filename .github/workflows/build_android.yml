@@ -37,18 +37,46 @@ jobs:
           python3 -m pip install --upgrade "pip<25.0" setuptools wheel virtualenv
           python3 -m pip install buildozer "cython==0.29.36"
 
-      - name: Build Debug APK
+      # Pass 1: lets buildozer download python-for-android, SDK and NDK.
+      # It is EXPECTED to fail at the pip step, so errors are ignored here.
+      - name: Build pass 1 (download tools, may fail)
+        run: |
+          buildozer android debug > build1.log 2>&1 || true
+
+      # Patch python-for-android so the venv gets a clean pip
+      - name: Patch python-for-android pip step
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path('.buildozer/android/platform/python-for-android/pythonforandroid/build.py')
+          s = p.read_text()
+          old = 'pip install -U pip'
+          new = ('rm -rf venv/lib/python3*/site-packages/pip venv/lib/python3*/site-packages/pip-* '
+                 '&& curl -sSf -o /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py '
+                 '&& python /tmp/get-pip.py')
+          print('occurrences found:', s.count(old))
+          assert old in s, 'pattern not found in build.py'
+          p.write_text(s.replace(old, new))
+          PY
+          grep -n "get-pip" .buildozer/android/platform/python-for-android/pythonforandroid/build.py
+
+      - name: Build Debug APK (pass 2)
         run: |
           set -o pipefail
-          yes | buildozer android debug 2>&1 | tee build.log
+          buildozer android debug 2>&1 | tee build.log
 
       - name: Show the error (only runs if build fails)
         if: failure()
         run: |
-          sed 's/\x1b\[[0-9;]*m//g' build.log > clean.log
-          LINE=$(grep -n "# Command failed" clean.log | head -1 | cut -d: -f1)
-          start=$(( LINE > 120 ? LINE - 120 : 1 ))
-          sed -n "${start},${LINE}p" clean.log | cut -c1-300
+          for f in build.log build1.log; do [ -f "$f" ] && sed 's/\x1b\[[0-9;]*m//g' "$f" > "clean_$f"; done
+          F=clean_build.log; [ -f "$F" ] || F=clean_build1.log
+          LINE=$(grep -n "# Command failed" "$F" | head -1 | cut -d: -f1)
+          if [ -z "$LINE" ]; then
+            tail -n 150 "$F" | cut -c1-300
+          else
+            start=$(( LINE > 120 ? LINE - 120 : 1 ))
+            sed -n "${start},${LINE}p" "$F" | cut -c1-300
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
